@@ -3,12 +3,23 @@ package at.zaboing.tictactoe;
 
 import org.bytedeco.javacpp.Loader;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.bytedeco.javacpp.opencv_core.*;
 import static org.bytedeco.javacpp.opencv_imgproc.*;
 
 public class CvUtils {
 
     public static CvRect getBiggestContour(IplImage srcImage) {
+        List<CvRect> contours = getContours(srcImage);
+        return contours.parallelStream().
+                max((c1, c2) -> Integer.compare(c1.width() * c1.height(), c2.width() * c2.height())).
+                orElse(null);
+    }
+
+    public static List<CvRect> getContours(IplImage srcImage) {
+        List<CvRect> list = new ArrayList<>();
 
         IplImage resultImage = IplImage.create(srcImage.width(), srcImage.height(), 8, 1);
 
@@ -18,23 +29,12 @@ public class CvUtils {
 
         cvFindContours(srcImage, mem, contours, Loader.sizeof(CvContour.class), CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, cvPoint(0, 0));
 
-        CvRect biggestBox = null;
-        int biggestSize = 0;
-
         for (ptr = contours; ptr != null && !ptr.isNull(); ptr = ptr.h_next()) {
-            CvRect boundbox = cvBoundingRect(ptr);
-
-            int size = boundbox.width() * boundbox.height();
-            if (size >= biggestSize) {
-                biggestBox = boundbox;
-                biggestSize = size;
-            }
+            CvRect boundingBox = cvBoundingRect(ptr);
+            list.add(boundingBox);
         }
-        if (biggestBox != null) {
-            mem.deallocate();
-            return biggestBox;
-        }
-        return null;
+        mem.deallocate();
+        return list;
     }
 
 
@@ -81,20 +81,39 @@ public class CvUtils {
         return mask;
     }
 
-    public static IplImage cropImage(IplImage image, CvScalar backgroundColor) {
-        CvScalar min = cvScalar(clamp(backgroundColor.blue() - 20, 0, 255),
-                clamp(backgroundColor.green() - 20, 0, 255),
-                clamp(backgroundColor.red() - 20, 0, 255),
-                0);
+    public static IplImage cropImage(IplImage image, CvScalar minColor, CvScalar maxColor) {
+        IplImage threshed = threshExcludingAsMask(image, minColor, maxColor);
 
-        CvScalar max = cvScalar(clamp(backgroundColor.blue() + 20, 0, 255),
-                clamp(backgroundColor.green() + 20, 0, 255),
-                clamp(backgroundColor.red() + 20, 0, 255),
-                0);
+        List<CvRect> contours = getContours(threshed);
+        CvRect boundingBox = contours.get(0);
+        for (CvRect contour : contours) {
+            if (contour.x() < boundingBox.x()) {
+                int width = boundingBox.width() + boundingBox.x() - contour.x();
+                boundingBox = boundingBox.x(contour.x()).width(width);
+            }
+            if (contour.y() < boundingBox.y()) {
+                int height = boundingBox.height() + boundingBox.y() - contour.y();
+                boundingBox = boundingBox.y(contour.y()).height(height);
+            }
+            int maxX = contour.x() + contour.width();
+            if (maxX > boundingBox.x() + boundingBox.width()) {
+                int distance = contour.x() - boundingBox.x();
+                boundingBox = boundingBox.width(contour.width() - distance);
+            }
+            int maxY = contour.y() + contour.height();
+            if (maxY > boundingBox.y() + boundingBox.height()) {
+                int distance = contour.y() - boundingBox.y();
+                boundingBox = boundingBox.height(contour.height() - distance);
+            }
+        }
 
-        IplImage threshed = threshExcluding(image, min, max);
+        IplImage dst = threshed.clone();//image.clone();
 
-        return threshed;
+        cvRectangle(dst, cvPoint(boundingBox.x(), boundingBox.y()),
+                cvPoint(boundingBox.x() + boundingBox.width(), boundingBox.y() + boundingBox.height()),
+                cvScalar(0, 255, 0, 0), 10, 8, 0);
+
+        return dst;
     }
 
     private static double clamp(double i, int min, int max) {

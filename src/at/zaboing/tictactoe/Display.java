@@ -126,6 +126,7 @@ public class Display {
         int widthThird = currentImage.width() / 3;
         int heightThird = currentImage.height() / 3;
         currentImage = CvUtils.subImage(currentImage, cvRect(i * widthThird, j * heightThird, widthThird, heightThird));
+        currentImage = CvUtils.cropImage(currentImage, cvScalar(200, 200, 200, 0), cvScalar(255, 255, 255, 255));
         int[] move = getNextMove();
         System.out.println(move[0] + " " + move[1]);
     }
@@ -133,6 +134,6 @@ public class Display {
     public static void main(String[] args) {
         Display display = new Display();
         display.getNextMove();
-        display.move(1, 1);
+        display.move(0, 1);
     }
 }
